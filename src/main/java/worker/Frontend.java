@@ -1,9 +1,7 @@
 package worker;
 
-import akka.actor.ActorRef;
-import akka.actor.UntypedActor;
-import akka.cluster.singleton.ClusterSingletonProxy;
-import akka.cluster.singleton.ClusterSingletonProxySettings;
+import akka.actor.*;
+import akka.cluster.sharding.ClusterSharding;
 import akka.dispatch.Mapper;
 import akka.dispatch.Recover;
 import akka.util.Timeout;
@@ -16,19 +14,19 @@ import scala.concurrent.Future;
 import static akka.pattern.Patterns.ask;
 import static akka.pattern.Patterns.pipe;
 
-public class Frontend extends UntypedActor {
+public class Frontend extends UntypedAbstractActor {
 
+  private ActorRef master;
 
-  ActorRef masterProxy = getContext().actorOf(
-      ClusterSingletonProxy.props(
-          "/user/master",
-          ClusterSingletonProxySettings.create(getContext().system()).withRole("backend")),
-      "masterProxy");
+  public Frontend(ActorRef master) {
+    this.master = master;
+
+  }
 
   public void onReceive(Object message) {
 
     Timeout timeout = new Timeout(5, TimeUnit.SECONDS);
-    Future<Object> f = ask(masterProxy, message, timeout);
+    Future<Object> f = ask(master, message, timeout);
 
 
     final ExecutionContext ec = getContext().system().dispatcher();
@@ -50,6 +48,8 @@ public class Frontend extends UntypedActor {
 
     pipe(res, ec).to(getSender());
   }
+
+  public static Props props(ActorRef master) { return Props.create(Frontend.class, () -> new Frontend(master)); }
 
   public static final class Ok implements Serializable {
     private Ok() {}

@@ -1,11 +1,10 @@
 package worker;
 
+import akka.actor.AbstractActor;
 import akka.actor.ActorRef;
 import akka.actor.Scheduler;
-import akka.actor.UntypedActor;
 import akka.event.Logging;
 import akka.event.LoggingAdapter;
-import akka.japi.Procedure;
 
 import java.util.UUID;
 
@@ -16,7 +15,7 @@ import worker.Master.Work;
 import static worker.Frontend.NotOk;
 import static worker.Frontend.Ok;
 
-public class WorkProducer extends UntypedActor {
+public class WorkProducer extends AbstractActor {
 
   private final ActorRef frontend;
 
@@ -45,35 +44,24 @@ public class WorkProducer extends UntypedActor {
   }
 
   @Override
-  public void onReceive(Object message) {
-    if (message == Tick) {
+  public Receive createReceive() {
+    return receiveBuilder().matchEquals(Tick, message -> {
       n += 1;
       log.info("Produced work: {}", n);
       Work work = new Work(nextWorkId(), n);
       frontend.tell(work, getSelf());
       getContext().become(waitAccepted(work), false);
-    }
-    else {
-      unhandled(message);
-    }
+    }).build();
   }
 
-  private Procedure<Object> waitAccepted(final Work work) {
-    return new Procedure<Object>() {
-      public void apply(Object message) {
-        if (message instanceof Ok) {
-          getContext().unbecome();
-          scheduler.scheduleOnce(Duration.create(rnd.nextInt(3, 10), "seconds"), getSelf(), Tick, ec, getSelf());
-        }
-        else if (message instanceof NotOk) {
-          log.info("Work not accepted, retry after a while");
-          scheduler.scheduleOnce(Duration.create(3, "seconds"), frontend, work, ec, getSelf());
-        }
-        else {
-          unhandled(message);
-        }
-      }
-    };
+  private Receive waitAccepted(final Work work) {
+    return receiveBuilder().match(Ok.class, message -> {
+      getContext().unbecome();
+      scheduler.scheduleOnce(Duration.create(rnd.nextInt(3, 10), "seconds"), getSelf(), Tick, ec, getSelf());
+    }).match(NotOk.class, message -> {
+      log.info("Work not accepted, retry after a while");
+      scheduler.scheduleOnce(Duration.create(3, "seconds"), frontend, work, ec, getSelf());
+    }).build();
   }
 
   private static final Object Tick = new Object() {

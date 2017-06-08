@@ -1,10 +1,10 @@
 package worker;
 
-import akka.actor.UntypedActor;
+import akka.actor.UntypedAbstractActor;
 import akka.event.Logging;
 import akka.event.LoggingAdapter;
 
-public class WorkExecutor extends UntypedActor {
+public class WorkExecutor extends UntypedAbstractActor {
 
   private LoggingAdapter log = Logging.getLogger(getContext().system(), this);
 

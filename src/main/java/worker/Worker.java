@@ -5,7 +5,6 @@ import akka.cluster.client.ClusterClient.SendToAll;
 import akka.event.Logging;
 import akka.event.LoggingAdapter;
 import akka.japi.Function;
-import akka.japi.Procedure;
 
 import java.io.Serializable;
 import java.util.UUID;
@@ -20,7 +19,7 @@ import static worker.Master.Ack;
 import static worker.Master.Work;
 import static worker.MasterWorkerProtocol.*;
 
-public class Worker extends UntypedActor {
+public class Worker extends AbstractActor {
 
   public static Props props(ActorRef clusterClient, Props workExecutorProps, FiniteDuration registerInterval) {
     return Props.create(Worker.class, clusterClient, workExecutorProps, registerInterval);
@@ -65,7 +64,7 @@ public class Worker extends UntypedActor {
           else if (t instanceof Exception) {
             if (currentWorkId != null)
               sendToMaster(new WorkFailed(workerId, workId()));
-            getContext().become(idle);
+            getContext().become(idle());
             return restart();
           }
           else {
@@ -81,64 +80,50 @@ public class Worker extends UntypedActor {
     registerTask.cancel();
   }
 
-  public void onReceive(Object message) {
-    unhandled(message);
+  @Override
+  public Receive createReceive() {
+    return emptyBehavior();
   }
 
-  private final Procedure<Object> idle = new Procedure<Object>() {
-    public void apply(Object message) {
-      if (message instanceof MasterWorkerProtocol.WorkIsReady)
-        sendToMaster(new MasterWorkerProtocol.WorkerRequestsWork(workerId));
-      else if (message instanceof Work) {
-        Work work = (Work) message;
-        log.info("Got work: {}", work.job);
-        currentWorkId = work.workId;
-        workExecutor.tell(work.job, getSelf());
-        getContext().become(working);
-      }
-      else unhandled(message);
-    }
-  };
+  private final Receive idle() {
+    return receiveBuilder()
+            .match(MasterWorkerProtocol.WorkIsReady.class, message -> {
+              sendToMaster(new MasterWorkerProtocol.WorkerRequestsWork(workerId));
+            }).match(Work.class, work -> {
+      log.info("Got work: {}", work.job);
+      currentWorkId = work.workId;
+      workExecutor.tell(work.job, getSelf());
+      getContext().become(working());
+    }).build();
+  }
 
-  private final Procedure<Object> working = new Procedure<Object>() {
-    public void apply(Object message) {
-      if (message instanceof WorkComplete) {
-        Object result = ((WorkComplete) message).result;
-        log.info("Work is complete. Result {}.", result);
-        sendToMaster(new WorkIsDone(workerId, workId(), result));
-        getContext().setReceiveTimeout(Duration.create(5, "seconds"));
-        getContext().become(waitForWorkIsDoneAck(result));
-      }
-      else if (message instanceof Work) {
-        log.info("Yikes. Master told me to do work, while I'm working.");
-      }
-      else {
-        unhandled(message);
-      }
-    }
-  };
+  private final Receive working() {
+    return receiveBuilder()
+            .match(WorkComplete.class, message -> {
+              Object result = message.result;
+              log.info("Work is complete. Result {}.", result);
+              sendToMaster(new WorkIsDone(workerId, workId(), result));
+              getContext().setReceiveTimeout(Duration.create(5, "seconds"));
+              getContext().become(waitForWorkIsDoneAck(result));
+            }).match(Work.class, message -> {
+              log.info("Yikes. Master told me to do work, while I'm working.");
+            }).build();
+  }
 
-  private Procedure<Object> waitForWorkIsDoneAck(final Object result) {
-    return new Procedure<Object>() {
-      public void apply(Object message) {
-        if (message instanceof Ack && ((Ack) message).workId.equals(workId())) {
-          sendToMaster(new WorkerRequestsWork(workerId));
-          getContext().setReceiveTimeout(Duration.Undefined());
-          getContext().become(idle);
-        }
-        else if (message instanceof ReceiveTimeout) {
-          log.info("No ack from master, retrying (" + workerId + " -> " + workId() + ")");
-          sendToMaster(new WorkIsDone(workerId, workId(), result));
-        }
-        else {
-          unhandled(message);
-        }
-      }
-    };
+  private Receive waitForWorkIsDoneAck(final Object result) {
+    return receiveBuilder()
+            .match(Ack.class, message -> message.workId.equals(workId()), message -> {
+              sendToMaster(new WorkerRequestsWork(workerId));
+              getContext().setReceiveTimeout(Duration.Undefined());
+              getContext().become(idle());
+            }).match(ReceiveTimeout.class, message -> {
+              log.info("No ack from master, retrying (" + workerId + " -> " + workId() + ")");
+              sendToMaster(new WorkIsDone(workerId, workId(), result));
+            }).build();
   }
 
   {
-    getContext().become(idle);
+    getContext().become(idle());
   }
 
   @Override

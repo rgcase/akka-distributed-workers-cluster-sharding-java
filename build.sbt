@@ -1,10 +1,11 @@
 name := "akka-distributed-workers-java"
 version := "0.1"
-scalaVersion := "2.11.7"
-lazy val akkaVersion = "2.4.0"
+scalaVersion := "2.11.11"
+lazy val akkaVersion = "2.5.2"
 
 libraryDependencies ++= Seq(
   "com.typesafe.akka" %% "akka-cluster" % akkaVersion,
+  "com.typesafe.akka" %% "akka-cluster-sharding" % akkaVersion,
   "com.typesafe.akka" %% "akka-cluster-tools" % akkaVersion,
   "com.typesafe.akka" %% "akka-persistence" % akkaVersion,
   "org.iq80.leveldb" % "leveldb" % "0.7",
@@ -17,3 +18,7 @@ libraryDependencies ++= Seq(
 fork in Test := true
 testOptions += Tests.Argument(TestFrameworks.JUnit, "-v", "-a")
 compileOrder := CompileOrder.JavaThenScala
+
+javacOptions += "-Xlint:deprecation"
+
+mainClass in run := Some("worker.Main")
